@@ -2,6 +2,7 @@
     "name": "CoreUtilsFx.Editor",
     "rootNamespace": "CoreUtilsFx",
     "references": [
+        "GUID:dec955caf8c04e88b9d8aeb8ccb19fc5"
     ],
     "includePlatforms": [
         "Editor"
