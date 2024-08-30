@@ -200,6 +200,11 @@ namespace SceneSelector
 
         static void ReturnToPreviousScene(PlayModeStateChange change)
         {
+            if (!HasOpenInstances<SceneSelectorWindow>())
+            {
+                return;
+            }
+            
             if (change == PlayModeStateChange.EnteredEditMode)
             {
                 GetWindow<SceneSelectorWindow>().SetActive(true);
