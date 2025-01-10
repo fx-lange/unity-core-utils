@@ -125,9 +125,9 @@ namespace SceneSelector
 
         private void OnDisable()
         {
-            _input.UnregisterValueChangedCallback(UpdateKeyword);
-            _input.UnregisterCallback<FocusOutEvent>(CallPopulate);
-            _objectField.UnregisterValueChangedCallback(SceneChangeCallback);
+            _input?.UnregisterValueChangedCallback(UpdateKeyword);
+            _input?.UnregisterCallback<FocusOutEvent>(CallPopulate);
+            _objectField?.UnregisterValueChangedCallback(SceneChangeCallback);
         }
 
         VisualElement CreateSceneButton(SceneAsset sceneAsset)
@@ -200,6 +200,11 @@ namespace SceneSelector
 
         static void ReturnToPreviousScene(PlayModeStateChange change)
         {
+            if (!HasOpenInstances<SceneSelectorWindow>())
+            {
+                return;
+            }
+            
             if (change == PlayModeStateChange.EnteredEditMode)
             {
                 GetWindow<SceneSelectorWindow>().SetActive(true);
