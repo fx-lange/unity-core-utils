@@ -1,3 +1,4 @@
 ﻿{
-  "name": "CoreFx"
+  "name": "CoreFx",
+  "rootNamespace": "CoreFx"
 }
