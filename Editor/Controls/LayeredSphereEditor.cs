@@ -32,7 +32,7 @@ namespace CoreUtilsFx.Controls
                 if (outerRadius > sphere.InnerRadius)
                 {
                     Undo.RecordObject(sphere, "Layered Sphere Outer Radius");
-                    sphere.OuterRadius = outerRadius;
+                    sphere.OuterDistance = outerRadius - sphere.InnerRadius;
                 }
             }
         }

@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace CoreFx.Controls
@@ -5,7 +6,8 @@ namespace CoreFx.Controls
     public class LayeredSphere : MonoBehaviour
     {
         [SerializeField] private float _innerRadius;
-        [SerializeField] private float _outerRadius;
+        [HideInInspector][SerializeField] private float _outerRadius;
+        [SerializeField] private float _outerDistance;
 
         public float InnerRadius
         {
@@ -13,10 +15,12 @@ namespace CoreFx.Controls
             set => _innerRadius = value;
         }
 
-        public float OuterRadius
+        public float OuterRadius => _innerRadius + _outerDistance;
+
+        public float OuterDistance
         {
-            get => _outerRadius;
-            set => _outerRadius = value;
+            get => _outerDistance;
+            set => _outerDistance = value;
         }
 
 #if UNITY_EDITOR
