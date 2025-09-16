@@ -19,7 +19,17 @@ namespace CoreFx
             var type = service.GetType();
             if (!_services.TryAdd(type, service))
             {
-                Debug.LogWarning($"Type {type} already registered");
+                Debug.LogWarning($"Type {type} already registered -> overwriting");
+                _services[type] = service;
+            }
+        }
+        
+        public static void Unregister(IService service)
+        {
+            var type = service.GetType();
+            if (_services.Remove(type))
+            {
+                Debug.Log($"Type {type} unregistered");
             }
         }
 
