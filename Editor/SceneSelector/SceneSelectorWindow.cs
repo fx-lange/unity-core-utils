@@ -3,28 +3,30 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using CoreFx;
 
-//TODO ask for save
 //TODO filter via path?
-//TODO active scene control (first fixed or last)
-// -> Main Scene, Fixed Scenes, "Levels"
 
 namespace SceneSelector
 {
     public class SceneSelectorWindow : EditorWindow
     {
+        private enum ActiveSceneChoice { OpenedScene, FirstFixedScene, LastFixedScene }
+
         [SerializeField] private string keyword = "";
         [SerializeField] private ScenesList _fixedScenes;
         [SerializeField] private ScenesList _preselection;
         [SerializeField] private bool _useFixedScenes = true;
         [SerializeField] private bool _usePreselection = true;
+        [SerializeField] private ActiveSceneChoice _activeSceneChoice = ActiveSceneChoice.OpenedScene;
 
         private TextField _input;
         private VisualElement _container;
         private DropdownField _fixedScenesDropdown;
         private DropdownField _preselectionDropdown;
+        private EnumField _activeSceneField;
         private readonly List<Button> _buttons = new();
 
         private List<string> _scenesListNames;
@@ -45,7 +47,7 @@ namespace SceneSelector
                 label = "Filter",
                 value = keyword
             };
-            rootVisualElement.Add(_input);
+            
             _input.RegisterValueChangedCallback(UpdateKeyword);
 
             RefreshScenesListChoices();
@@ -64,26 +66,32 @@ namespace SceneSelector
             {
                 int idx = _scenesListNames.IndexOf(evt.newValue);
                 _fixedScenes = idx > 0 ? _scenesListAssets[idx] : null;
-                _useFixedScenes = idx > 0;
-                useFixedToggle.value = _useFixedScenes;
+                _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
                 Populate();
             });
 
             useFixedToggle.RegisterValueChangedCallback(evt =>
             {
                 _useFixedScenes = evt.newValue;
-                if (!_useFixedScenes)
-                {
-                    _fixedScenesDropdown.index = 0;
-                    _fixedScenes = null;
-                }
                 _fixedScenesDropdown.SetEnabled(_useFixedScenes);
+                _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
                 Populate();
             });
 
             fixedRow.Add(useFixedToggle);
             fixedRow.Add(_fixedScenesDropdown);
-            rootVisualElement.Add(fixedRow);
+            
+
+            // Row: EnumField (Active Scene)
+            var activeSceneRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            _activeSceneField = new EnumField("Active Scene", _activeSceneChoice);
+            _activeSceneField.style.flexGrow = 1;
+            _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
+            _activeSceneField.RegisterValueChangedCallback(evt =>
+            {
+                _activeSceneChoice = (ActiveSceneChoice)evt.newValue;
+            });
+            activeSceneRow.Add(_activeSceneField);
 
             // Row: Toggle (Use Options) + DropdownField (Scene Options)
             var optionsRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
@@ -99,26 +107,23 @@ namespace SceneSelector
             {
                 int idx = _scenesListNames.IndexOf(evt.newValue);
                 _preselection = idx > 0 ? _scenesListAssets[idx] : null;
-                _usePreselection = idx > 0;
-                usePreselectionToggle.value = _usePreselection;
                 Populate();
             });
 
             usePreselectionToggle.RegisterValueChangedCallback(evt =>
             {
                 _usePreselection = evt.newValue;
-                if (!_usePreselection)
-                {
-                    _preselectionDropdown.index = 0;
-                    _preselection = null;
-                }
                 _preselectionDropdown.SetEnabled(_usePreselection);
                 Populate();
             });
 
             optionsRow.Add(usePreselectionToggle);
             optionsRow.Add(_preselectionDropdown);
+            
+            rootVisualElement.Add(fixedRow);
             rootVisualElement.Add(optionsRow);
+            rootVisualElement.Add(activeSceneRow);
+            rootVisualElement.Add(_input);
 
             var scroll = new ScrollView(ScrollViewMode.Vertical);
             scroll.style.flexGrow = 1;
@@ -246,6 +251,33 @@ namespace SceneSelector
             return (matched, score, matched ? matchedIndices : null);
         }
 
+        static bool HasUnsavedScenes()
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+                if (SceneManager.GetSceneAt(i).isDirty)
+                    return true;
+            return false;
+        }
+
+        static bool ConfirmDiscardOrSave()
+        {
+            if (!HasUnsavedScenes()) return true;
+
+            int choice = EditorUtility.DisplayDialogComplex(
+                "Unsaved Scenes",
+                "You have unsaved changes in the current scene(s). What would you like to do?",
+                "Save and Open",   // 0
+                "Cancel",          // 1
+                "Discard and Open" // 2
+            );
+            switch (choice)
+            {
+                case 0: return EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
+                case 2: return true;
+                default: return false;
+            }
+        }
+
         VisualElement CreateSceneButton(SceneAsset sceneAsset, int[] highlightIndices)
         {
             string scenePath = AssetDatabase.GetAssetPath(sceneAsset);
@@ -264,6 +296,8 @@ namespace SceneSelector
 
             var openButton = new Button(() =>
             {
+                if (!ConfirmDiscardOrSave()) return;
+
                 if (_useFixedScenes && _fixedScenes != null)
                 {
                     bool first = true;
@@ -281,6 +315,22 @@ namespace SceneSelector
                     }
 
                     EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
+
+                    switch (_activeSceneChoice)
+                    {
+                        case ActiveSceneChoice.FirstFixedScene:
+                            SceneManager.SetActiveScene(SceneManager.GetSceneByPath(
+                                AssetDatabase.GetAssetPath(_fixedScenes.Scenes[0])));
+                            break;
+                        case ActiveSceneChoice.LastFixedScene:
+                            SceneManager.SetActiveScene(SceneManager.GetSceneByPath(
+                                AssetDatabase.GetAssetPath(_fixedScenes.Scenes[^1])));
+                            break;
+                        case ActiveSceneChoice.OpenedScene:
+                        default:
+                            SceneManager.SetActiveScene(SceneManager.GetSceneByPath(scenePath));
+                            break;
+                    }
                 }
                 else
                 {
@@ -360,13 +410,13 @@ namespace SceneSelector
 
         static void ReturnToPreviousScene(PlayModeStateChange change)
         {
-            if (!HasOpenInstances<SceneSelectorWindow>())
-                return;
+            if (!HasOpenInstances<SceneSelectorWindow>()) return;
 
-            if (change == PlayModeStateChange.EnteredEditMode)
-                GetWindow<SceneSelectorWindow>().SetActive(true);
-            else
+            if (change == PlayModeStateChange.EnteredPlayMode)
                 GetWindow<SceneSelectorWindow>().SetActive(false);
+            else if (change == PlayModeStateChange.EnteredEditMode)
+                GetWindow<SceneSelectorWindow>().SetActive(true);
+            // ExitingEditMode and ExitingPlayMode are intentionally ignored
         }
 
         private void SetActive(bool active)
