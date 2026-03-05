@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
-using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 using CoreFx;
@@ -24,9 +23,12 @@ namespace SceneSelector
 
         private TextField _input;
         private VisualElement _container;
-        private ObjectField _objectField;
-        private ObjectField _preSelectObjField;
+        private DropdownField _fixedScenesDropdown;
+        private DropdownField _preselectionDropdown;
         private readonly List<Button> _buttons = new();
+
+        private List<string> _scenesListNames;
+        private List<ScenesList> _scenesListAssets;
 
         [MenuItem("Tools/Scenes/Scene Window")]
         static void OpenWindow()
@@ -46,54 +48,76 @@ namespace SceneSelector
             rootVisualElement.Add(_input);
             _input.RegisterValueChangedCallback(UpdateKeyword);
 
-            // Row: Toggle (Use Fixed) + ObjectField (Fixed Scenes)
+            RefreshScenesListChoices();
+
+            // Row: Toggle (Use Fixed) + DropdownField (Fixed Scenes)
             var fixedRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             var useFixedToggle = new Toggle { value = _useFixedScenes, tooltip = "Use Fixed Scenes" };
             useFixedToggle.style.marginRight = 4;
+
+            int fixedInitialIdx = _fixedScenes != null ? _scenesListAssets.IndexOf(_fixedScenes) : 0;
+            if (fixedInitialIdx < 0) fixedInitialIdx = 0;
+            _fixedScenesDropdown = new DropdownField("Fixed Scenes", _scenesListNames, fixedInitialIdx);
+            _fixedScenesDropdown.style.flexGrow = 1;
+            _fixedScenesDropdown.SetEnabled(_useFixedScenes);
+            _fixedScenesDropdown.RegisterValueChangedCallback(evt =>
+            {
+                int idx = _scenesListNames.IndexOf(evt.newValue);
+                _fixedScenes = idx > 0 ? _scenesListAssets[idx] : null;
+                _useFixedScenes = idx > 0;
+                useFixedToggle.value = _useFixedScenes;
+                Populate();
+            });
+
             useFixedToggle.RegisterValueChangedCallback(evt =>
             {
                 _useFixedScenes = evt.newValue;
-                _objectField.SetEnabled(_useFixedScenes);
+                if (!_useFixedScenes)
+                {
+                    _fixedScenesDropdown.index = 0;
+                    _fixedScenes = null;
+                }
+                _fixedScenesDropdown.SetEnabled(_useFixedScenes);
                 Populate();
             });
-            _objectField = new ObjectField
-            {
-                label = "Fixed Scenes",
-                objectType = typeof(ScenesList),
-                value = _fixedScenes
-            };
-            _objectField.style.flexGrow = 1;
-            _objectField.SetEnabled(_useFixedScenes);
-            _objectField.RegisterValueChangedCallback(evt => { _fixedScenes = evt.newValue as ScenesList; });
+
             fixedRow.Add(useFixedToggle);
-            fixedRow.Add(_objectField);
+            fixedRow.Add(_fixedScenesDropdown);
             rootVisualElement.Add(fixedRow);
 
-            // Row: Toggle (Use Options) + ObjectField (Scene Options)
+            // Row: Toggle (Use Options) + DropdownField (Scene Options)
             var optionsRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             var usePreselectionToggle = new Toggle { value = _usePreselection, tooltip = "Use Scene Options" };
             usePreselectionToggle.style.marginRight = 4;
+
+            int preselInitialIdx = _preselection != null ? _scenesListAssets.IndexOf(_preselection) : 0;
+            if (preselInitialIdx < 0) preselInitialIdx = 0;
+            _preselectionDropdown = new DropdownField("Scene Options", _scenesListNames, preselInitialIdx);
+            _preselectionDropdown.style.flexGrow = 1;
+            _preselectionDropdown.SetEnabled(_usePreselection);
+            _preselectionDropdown.RegisterValueChangedCallback(evt =>
+            {
+                int idx = _scenesListNames.IndexOf(evt.newValue);
+                _preselection = idx > 0 ? _scenesListAssets[idx] : null;
+                _usePreselection = idx > 0;
+                usePreselectionToggle.value = _usePreselection;
+                Populate();
+            });
+
             usePreselectionToggle.RegisterValueChangedCallback(evt =>
             {
                 _usePreselection = evt.newValue;
-                _preSelectObjField.SetEnabled(_usePreselection);
+                if (!_usePreselection)
+                {
+                    _preselectionDropdown.index = 0;
+                    _preselection = null;
+                }
+                _preselectionDropdown.SetEnabled(_usePreselection);
                 Populate();
             });
-            _preSelectObjField = new ObjectField
-            {
-                label = "Scene Preselection",
-                objectType = typeof(ScenesList),
-                value = _preselection
-            };
-            _preSelectObjField.style.flexGrow = 1;
-            _preSelectObjField.SetEnabled(_usePreselection);
-            _preSelectObjField.RegisterValueChangedCallback(evt =>
-            {
-                _preselection = evt.newValue as ScenesList;
-                Populate();
-            });
+
             optionsRow.Add(usePreselectionToggle);
-            optionsRow.Add(_preSelectObjField);
+            optionsRow.Add(_preselectionDropdown);
             rootVisualElement.Add(optionsRow);
 
             var scroll = new ScrollView(ScrollViewMode.Vertical);
@@ -103,6 +127,23 @@ namespace SceneSelector
             rootVisualElement.Add(scroll);
 
             Populate();
+        }
+
+        void RefreshScenesListChoices()
+        {
+            _scenesListNames = new List<string> { "(All Scenes)" };
+            _scenesListAssets = new List<ScenesList> { null };
+
+            foreach (var guid in AssetDatabase.FindAssets("t:ScenesList"))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<ScenesList>(path);
+                if (asset != null)
+                {
+                    _scenesListNames.Add(asset.name);
+                    _scenesListAssets.Add(asset);
+                }
+            }
         }
 
         void UpdateKeyword(ChangeEvent<string> evt)
