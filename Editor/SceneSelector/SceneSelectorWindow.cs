@@ -8,7 +8,6 @@ using UnityEngine.UIElements;
 using CoreFx;
 
 //TODO ask for save
-//TODO case insensitive filter
 //TODO filter via path?
 //TODO active scene control (first fixed or last)
 // -> Main Scene, Fixed Scenes, "Levels"
@@ -20,10 +19,13 @@ namespace SceneSelector
         [SerializeField] private string keyword = "";
         [SerializeField] private ScenesList _fixedScenes;
         [SerializeField] private ScenesList _preselection;
+        [SerializeField] private bool _useFixedScenes = true;
+        [SerializeField] private bool _usePreselection = true;
 
         private TextField _input;
         private VisualElement _container;
         private ObjectField _objectField;
+        private ObjectField _preSelectObjField;
         private readonly List<Button> _buttons = new();
 
         [MenuItem("Tools/Scenes/Scene Window")]
@@ -31,74 +33,91 @@ namespace SceneSelector
         {
             GetWindow<SceneSelectorWindow>(title: "Scene Selector");
         }
-        
+
         void CreateGUI()
         {
-            _container = new VisualElement();
-            rootVisualElement.Add(_container);
-            
+            rootVisualElement.style.flexDirection = FlexDirection.Column;
+
             _input = new TextField
             {
                 label = "Filter",
                 value = keyword
             };
             rootVisualElement.Add(_input);
-            
             _input.RegisterValueChangedCallback(UpdateKeyword);
-            _input.RegisterCallback<FocusOutEvent>(CallPopulate);
 
+            // Row: Toggle (Use Fixed) + ObjectField (Fixed Scenes)
+            var fixedRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            var useFixedToggle = new Toggle { value = _useFixedScenes, tooltip = "Use Fixed Scenes" };
+            useFixedToggle.style.marginRight = 4;
+            useFixedToggle.RegisterValueChangedCallback(evt =>
+            {
+                _useFixedScenes = evt.newValue;
+                _objectField.SetEnabled(_useFixedScenes);
+                Populate();
+            });
             _objectField = new ObjectField
             {
                 label = "Fixed Scenes",
                 objectType = typeof(ScenesList),
                 value = _fixedScenes
             };
-            _objectField.RegisterValueChangedCallback(SceneChangeCallback);
-            var preSelectObjField = new ObjectField()
+            _objectField.style.flexGrow = 1;
+            _objectField.SetEnabled(_useFixedScenes);
+            _objectField.RegisterValueChangedCallback(evt => { _fixedScenes = evt.newValue as ScenesList; });
+            fixedRow.Add(useFixedToggle);
+            fixedRow.Add(_objectField);
+            rootVisualElement.Add(fixedRow);
+
+            // Row: Toggle (Use Options) + ObjectField (Scene Options)
+            var optionsRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            var usePreselectionToggle = new Toggle { value = _usePreselection, tooltip = "Use Scene Options" };
+            usePreselectionToggle.style.marginRight = 4;
+            usePreselectionToggle.RegisterValueChangedCallback(evt =>
             {
-                label = "Scene Options",
+                _usePreselection = evt.newValue;
+                _preSelectObjField.SetEnabled(_usePreselection);
+                Populate();
+            });
+            _preSelectObjField = new ObjectField
+            {
+                label = "Scene Preselection",
                 objectType = typeof(ScenesList),
                 value = _preselection
             };
-            preSelectObjField.RegisterValueChangedCallback(evt =>
+            _preSelectObjField.style.flexGrow = 1;
+            _preSelectObjField.SetEnabled(_usePreselection);
+            _preSelectObjField.RegisterValueChangedCallback(evt =>
             {
                 _preselection = evt.newValue as ScenesList;
                 Populate();
             });
-            
-            rootVisualElement.Add(_objectField);
-            rootVisualElement.Add(preSelectObjField);
-            
+            optionsRow.Add(usePreselectionToggle);
+            optionsRow.Add(_preSelectObjField);
+            rootVisualElement.Add(optionsRow);
+
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1;
+            _container = new VisualElement();
+            scroll.Add(_container);
+            rootVisualElement.Add(scroll);
+
             Populate();
-        }
-
-        private void SceneChangeCallback(ChangeEvent<Object> evt)
-        {
-            _fixedScenes = evt.newValue as ScenesList;;
-
-            // foreach (var button in _buttons)
-            // {
-            //     button.SetEnabled(_fixedScenes != null);
-            // }
         }
 
         void UpdateKeyword(ChangeEvent<string> evt)
         {
             keyword = evt.newValue;
-        }
-
-        void CallPopulate(FocusOutEvent evt)
-        {
             Populate();
         }
-        
+
         void Populate()
         {
             _container.Clear();
             _buttons.Clear();
-         
+
             List<SceneAsset> scenes;
-            if (_preselection != null)
+            if (_usePreselection && _preselection != null)
             {
                 scenes = _preselection.Scenes;
             }
@@ -109,31 +128,87 @@ namespace SceneSelector
                 {
                     var scenePath = AssetDatabase.GUIDToAssetPath(guid);
                     return AssetDatabase.LoadAssetAtPath(scenePath, typeof(SceneAsset)) as SceneAsset;
-                }).ToList();
+                }).Where(s => s != null).ToList();
             }
-            
-            foreach (var sceneAsset in scenes)
+
+            if (string.IsNullOrEmpty(keyword))
             {
-                if (!sceneAsset.name.ToLower().Contains(keyword.ToLower()))
+                foreach (var sceneAsset in scenes)
                 {
+                    _container.Add(CreateSceneButton(sceneAsset, null));
+                }
+            }
+            else
+            {
+                var scored = scenes
+                    .Select(s => (scene: s, result: FuzzyMatch(s.name, keyword)))
+                    .Where(x => x.result.matches)
+                    .OrderByDescending(x => x.result.score)
+                    .ToList();
+
+                foreach (var (scene, result) in scored)
+                {
+                    _container.Add(CreateSceneButton(scene, result.matchedIndices));
+                }
+            }
+        }
+
+        static (bool matches, int score, int[] matchedIndices) FuzzyMatch(string target, string query)
+        {
+            if (string.IsNullOrEmpty(query))
+                return (true, 0, System.Array.Empty<int>());
+
+            var targetLower = target.ToLower();
+            var queryLower = query.ToLower();
+
+            int score = 0;
+            int queryIdx = 0;
+            int lastMatchIdx = -1;
+            int consecutive = 0;
+            var matchedIndices = new int[queryLower.Length];
+
+            for (int i = 0; i < targetLower.Length && queryIdx < queryLower.Length; i++)
+            {
+                if (targetLower[i] != queryLower[queryIdx])
+                {
+                    consecutive = 0;
                     continue;
                 }
-                var visualElement = CreateSceneButton(sceneAsset);
-                _container.Add(visualElement);
+
+                matchedIndices[queryIdx] = i;
+                queryIdx++;
+
+                // Consecutive bonus
+                if (lastMatchIdx == i - 1)
+                {
+                    consecutive++;
+                    score += consecutive * 3;
+                }
+                else
+                {
+                    consecutive = 0;
+                }
+
+                // Word boundary bonus
+                bool isWordBoundary = i == 0
+                                      || target[i - 1] == '_'
+                                      || target[i - 1] == ' '
+                                      || (char.IsUpper(target[i]) && char.IsLower(target[i - 1]));
+                if (isWordBoundary)
+                    score += 5;
+
+                score += 1;
+                lastMatchIdx = i;
             }
+
+            bool matched = queryIdx == queryLower.Length;
+            return (matched, score, matched ? matchedIndices : null);
         }
 
-        private void OnDisable()
+        VisualElement CreateSceneButton(SceneAsset sceneAsset, int[] highlightIndices)
         {
-            _input?.UnregisterValueChangedCallback(UpdateKeyword);
-            _input?.UnregisterCallback<FocusOutEvent>(CallPopulate);
-            _objectField?.UnregisterValueChangedCallback(SceneChangeCallback);
-        }
-
-        VisualElement CreateSceneButton(SceneAsset sceneAsset)
-        {
-           string scenePath = AssetDatabase.GetAssetPath(sceneAsset);
-           var buttonGroup = new VisualElement
+            string scenePath = AssetDatabase.GetAssetPath(sceneAsset);
+            var buttonGroup = new VisualElement
             {
                 style =
                 {
@@ -142,56 +217,100 @@ namespace SceneSelector
                 }
             };
 
-            var label = new Label($"{sceneAsset.name}");
+            var label = BuildLabel(sceneAsset.name, highlightIndices);
             label.style.width = 150;
             buttonGroup.Add(label);
 
             var openButton = new Button(() =>
             {
-                bool first = true;
-                if (_fixedScenes != null)
+                if (_useFixedScenes && _fixedScenes != null)
                 {
+                    bool first = true;
                     foreach (var fixedScene in _fixedScenes.Scenes)
                     {
-                        var path =AssetDatabase.GetAssetPath(fixedScene);
+                        var path = AssetDatabase.GetAssetPath(fixedScene);
                         if (first)
                         {
                             EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
                             first = false;
                             continue;
                         }
-                        
+
                         EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
                     }
+
+                    EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
                 }
-                
-                var scene = EditorSceneManager.OpenScene(scenePath, first ? OpenSceneMode.Single : OpenSceneMode.Additive);
-                // SceneManager.SetActiveScene(scene);
+                else
+                {
+                    EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                }
             })
             {
                 text = "Open"
             };
-            
-            // openButton.SetEnabled(_fixedScenes != null);
-            
+
             _buttons.Add(openButton);
             buttonGroup.Add(openButton);
 
-            var openAddButton = new Button(() =>
-            {
-                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
-                // EditorApplication.EnterPlaymode();
-            })
+            var openAddButton = new Button(() => { EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive); })
             {
                 text = "Open Additive"
             };
-            
+
             buttonGroup.Add(openAddButton);
             _buttons.Add(openAddButton);
 
             return buttonGroup;
         }
-        
+
+        static VisualElement BuildLabel(string name, int[] highlightIndices)
+        {
+            if (highlightIndices == null || highlightIndices.Length == 0)
+            {
+                var plain = new Label(name);
+                return plain;
+            }
+
+            var container = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            var highlightSet = new HashSet<int>(highlightIndices);
+
+            int i = 0;
+            while (i < name.Length)
+            {
+                if (highlightSet.Contains(i))
+                {
+                    // Collect consecutive highlighted chars
+                    int start = i;
+                    while (i < name.Length && highlightSet.Contains(i))
+                        i++;
+                    var hl = new Label(name.Substring(start, i - start));
+                    hl.style.color = new StyleColor(new Color(0.4f, 0.8f, 1f));
+                    hl.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    hl.style.paddingLeft = 0;
+                    hl.style.paddingRight = 0;
+                    container.Add(hl);
+                }
+                else
+                {
+                    int start = i;
+                    while (i < name.Length && !highlightSet.Contains(i))
+                        i++;
+                    var normal = new Label(name.Substring(start, i - start));
+                    normal.style.paddingLeft = 0;
+                    normal.style.paddingRight = 0;
+                    container.Add(normal);
+                }
+            }
+
+            return container;
+        }
+
+        private void OnDisable()
+        {
+            _input?.UnregisterValueChangedCallback(UpdateKeyword);
+        }
+
         [InitializeOnLoadMethod]
         static void RegisterCallbacks()
         {
@@ -201,19 +320,12 @@ namespace SceneSelector
         static void ReturnToPreviousScene(PlayModeStateChange change)
         {
             if (!HasOpenInstances<SceneSelectorWindow>())
-            {
                 return;
-            }
-            
+
             if (change == PlayModeStateChange.EnteredEditMode)
-            {
                 GetWindow<SceneSelectorWindow>().SetActive(true);
-                // EditorSceneManager.OpenScene(SceneSelectorSettings.instance.PreviousScenePath, OpenSceneMode.Single);
-            }
             else
-            {
                 GetWindow<SceneSelectorWindow>().SetActive(false);
-            }
         }
 
         private void SetActive(bool active)
