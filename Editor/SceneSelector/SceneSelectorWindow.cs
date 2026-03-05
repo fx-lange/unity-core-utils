@@ -1,15 +1,13 @@
 using System.Collections.Generic;
 using System.Linq;
+using CoreFx;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
-using CoreFx;
 
-//TODO filter via path?
-
-namespace SceneSelector
+namespace CoreUtilsFx.Editor.SceneSelector
 {
     public class SceneSelectorWindow : EditorWindow
     {
@@ -19,7 +17,7 @@ namespace SceneSelector
             FirstFixedScene
         }
 
-        [SerializeField] private string keyword = "";
+        [SerializeField] private string _keyword = "";
         [SerializeField] private ScenesList _fixedScenes;
         [SerializeField] private ScenesList _preselection;
         [SerializeField] private bool _useFixedScenes = true;
@@ -31,18 +29,17 @@ namespace SceneSelector
         private DropdownField _fixedScenesDropdown;
         private DropdownField _preselectionDropdown;
         private EnumField _activeSceneField;
-        private readonly List<Button> _buttons = new();
 
         private List<string> _scenesListNames;
         private List<ScenesList> _scenesListAssets;
 
         [MenuItem("Tools/Scenes/Scene Window")]
-        static void OpenWindow()
+        private static void OpenWindow()
         {
             GetWindow<SceneSelectorWindow>(title: "Scene Selector");
         }
 
-        void CreateGUI()
+        private void CreateGUI()
         {
             rootVisualElement.style.flexDirection = FlexDirection.Column;
 
@@ -57,7 +54,7 @@ namespace SceneSelector
 
             _input = new TextField
             {
-                label = "Filter", value = keyword,
+                label = "Filter", value = _keyword,
                 style =
                 {
                     marginLeft = 4,
@@ -232,7 +229,7 @@ namespace SceneSelector
         }
 
         // Small "locate in project" button next to a dropdown
-        static Button MakePingButton(System.Func<ScenesList> getAsset)
+        private static Button MakePingButton(System.Func<ScenesList> getAsset)
         {
             var btn = new Button(() =>
             {
@@ -256,7 +253,7 @@ namespace SceneSelector
         }
 
         // Register a ScenesList drag-and-drop target on the given element
-        static void RegisterDropTarget(VisualElement target, System.Action<ScenesList> onDrop)
+        private static void RegisterDropTarget(VisualElement target, System.Action<ScenesList> onDrop)
         {
             var normalBg = new StyleColor(Color.clear);
             var highlightBg = new StyleColor(new Color(0.25f, 0.55f, 1f, 0.25f));
@@ -287,7 +284,7 @@ namespace SceneSelector
             target.RegisterCallback<DragExitedEvent>(_ => { target.style.backgroundColor = normalBg; });
         }
 
-        static VisualElement MakeDivider()
+        private static VisualElement MakeDivider()
         {
             var line = new VisualElement
             {
@@ -302,7 +299,7 @@ namespace SceneSelector
             return line;
         }
 
-        void RefreshScenesListChoices()
+        private void RefreshScenesListChoices()
         {
             _scenesListNames = new List<string> { "(All Scenes)" };
             _scenesListAssets = new List<ScenesList> { null };
@@ -319,16 +316,15 @@ namespace SceneSelector
             }
         }
 
-        void UpdateKeyword(ChangeEvent<string> evt)
+        private void UpdateKeyword(ChangeEvent<string> evt)
         {
-            keyword = evt.newValue;
+            _keyword = evt.newValue;
             Populate();
         }
 
-        void Populate()
+        private void Populate()
         {
             _container.Clear();
-            _buttons.Clear();
 
             List<SceneAsset> scenes;
             if (_usePreselection && _preselection != null)
@@ -345,7 +341,7 @@ namespace SceneSelector
                 }).Where(s => s != null).ToList();
             }
 
-            if (string.IsNullOrEmpty(keyword))
+            if (string.IsNullOrEmpty(_keyword))
             {
                 foreach (var sceneAsset in scenes)
                     _container.Add(CreateSceneButton(sceneAsset, null));
@@ -353,7 +349,7 @@ namespace SceneSelector
             else
             {
                 var scored = scenes
-                    .Select(s => (scene: s, result: FuzzyMatch(s.name, keyword)))
+                    .Select(s => (scene: s, result: FuzzyMatch(s.name, _keyword)))
                     .Where(x => x.result.matches)
                     .OrderByDescending(x => x.result.score)
                     .ToList();
@@ -363,7 +359,7 @@ namespace SceneSelector
             }
         }
 
-        static (bool matches, int score, int[] matchedIndices) FuzzyMatch(string target, string query)
+        private static (bool matches, int score, int[] matchedIndices) FuzzyMatch(string target, string query)
         {
             if (string.IsNullOrEmpty(query))
                 return (true, 0, System.Array.Empty<int>());
@@ -399,7 +395,7 @@ namespace SceneSelector
             return (matched, score, matched ? matchedIndices : null);
         }
 
-        static bool HasUnsavedScenes()
+        private static bool HasUnsavedScenes()
         {
             for (var i = 0; i < SceneManager.sceneCount; i++)
                 if (SceneManager.GetSceneAt(i).isDirty)
@@ -407,7 +403,7 @@ namespace SceneSelector
             return false;
         }
 
-        static bool ConfirmDiscardOrSave()
+        private static bool ConfirmDiscardOrSave()
         {
             if (!HasUnsavedScenes()) return true;
 
@@ -426,7 +422,7 @@ namespace SceneSelector
             }
         }
 
-        VisualElement CreateSceneButton(SceneAsset sceneAsset, int[] highlightIndices)
+        private VisualElement CreateSceneButton(SceneAsset sceneAsset, int[] highlightIndices)
         {
             var scenePath = AssetDatabase.GetAssetPath(sceneAsset);
             var buttonGroup = new VisualElement
@@ -471,19 +467,16 @@ namespace SceneSelector
                 }
             }) { text = "Open" };
 
-            _buttons.Add(openButton);
             buttonGroup.Add(openButton);
 
             var openAddButton = new Button(() => { EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive); })
                 { text = "Open Additive" };
 
             buttonGroup.Add(openAddButton);
-            _buttons.Add(openAddButton);
-
             return buttonGroup;
         }
 
-        static VisualElement BuildLabel(string name, int[] highlightIndices)
+        private static VisualElement BuildLabel(string name, int[] highlightIndices)
         {
             if (highlightIndices == null || highlightIndices.Length == 0)
                 return new Label(name);
@@ -523,12 +516,12 @@ namespace SceneSelector
         }
 
         [InitializeOnLoadMethod]
-        static void RegisterCallbacks()
+        private static void RegisterCallbacks()
         {
             EditorApplication.playModeStateChanged += ReturnToPreviousScene;
         }
 
-        static void ReturnToPreviousScene(PlayModeStateChange change)
+        private static void ReturnToPreviousScene(PlayModeStateChange change)
         {
             if (!HasOpenInstances<SceneSelectorWindow>()) return;
 
