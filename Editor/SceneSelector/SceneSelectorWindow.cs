@@ -13,7 +13,11 @@ namespace SceneSelector
 {
     public class SceneSelectorWindow : EditorWindow
     {
-        private enum ActiveSceneChoice { OpenedScene, FirstFixedScene, LastFixedScene }
+        private enum ActiveSceneChoice
+        {
+            OpenedScene,
+            FirstFixedScene
+        }
 
         [SerializeField] private string keyword = "";
         [SerializeField] private ScenesList _fixedScenes;
@@ -42,30 +46,88 @@ namespace SceneSelector
         {
             rootVisualElement.style.flexDirection = FlexDirection.Column;
 
-            _input = new TextField
-            {
-                label = "Filter",
-                value = keyword
-            };
-            
-            _input.RegisterValueChangedCallback(UpdateKeyword);
-
             RefreshScenesListChoices();
 
-            // Row: Toggle (Use Fixed) + DropdownField (Fixed Scenes)
-            var fixedRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-            var useFixedToggle = new Toggle { value = _useFixedScenes, tooltip = "Use Fixed Scenes" };
-            useFixedToggle.style.marginRight = 4;
+            // ── Settings section ──────────────────────────────────────────
+            var settingsSection = SettingsSection();
+            rootVisualElement.Add(settingsSection);
 
-            int fixedInitialIdx = _fixedScenes != null ? _scenesListAssets.IndexOf(_fixedScenes) : 0;
+            // ── Filter ────────────────────────────────────────────────────
+            rootVisualElement.Add(MakeDivider());
+
+            _input = new TextField
+            {
+                label = "Filter", value = keyword,
+                style =
+                {
+                    marginLeft = 4,
+                    marginRight = 4,
+                    marginTop = 2
+                }
+            };
+            _input.RegisterValueChangedCallback(UpdateKeyword);
+            rootVisualElement.Add(_input);
+
+            // ── Scene list ────────────────────────────────────────────────
+            rootVisualElement.Add(MakeDivider());
+
+            var scroll = new ScrollView(ScrollViewMode.Vertical)
+            {
+                style =
+                {
+                    flexGrow = 1
+                }
+            };
+            _container = new VisualElement();
+            scroll.Add(_container);
+            rootVisualElement.Add(scroll);
+
+            Populate();
+        }
+
+        private VisualElement SettingsSection()
+        {
+            var settingsSection = new VisualElement
+            {
+                style =
+                {
+                    backgroundColor = new StyleColor(new Color(0f, 0f, 0f, 0.12f)),
+                    paddingTop = 4,
+                    paddingBottom = 4,
+                    paddingLeft = 4,
+                    paddingRight = 4
+                }
+            };
+
+            // Row: Toggle + Dropdown + Ping (Fixed Scenes)
+            var useFixedToggle = new Toggle
+            {
+                value = _useFixedScenes, tooltip = "Use Fixed Scenes",
+                style =
+                {
+                    marginRight = 4
+                }
+            };
+
+            var fixedInitialIdx = _fixedScenes != null ? _scenesListAssets.IndexOf(_fixedScenes) : 0;
             if (fixedInitialIdx < 0) fixedInitialIdx = 0;
-            _fixedScenesDropdown = new DropdownField("Fixed Scenes", _scenesListNames, fixedInitialIdx);
-            _fixedScenesDropdown.style.flexGrow = 1;
+            _fixedScenesDropdown = new DropdownField("Fixed Scenes", _scenesListNames, fixedInitialIdx)
+            {
+                style =
+                {
+                    flexGrow = 1
+                }
+            };
             _fixedScenesDropdown.SetEnabled(_useFixedScenes);
+
+            var fixedPingBtn = MakePingButton(() => _fixedScenes);
+            fixedPingBtn.SetEnabled(_fixedScenes != null);
+
             _fixedScenesDropdown.RegisterValueChangedCallback(evt =>
             {
-                int idx = _scenesListNames.IndexOf(evt.newValue);
+                var idx = _scenesListNames.IndexOf(evt.newValue);
                 _fixedScenes = idx > 0 ? _scenesListAssets[idx] : null;
+                fixedPingBtn.SetEnabled(_fixedScenes != null);
                 _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
                 Populate();
             });
@@ -78,35 +140,51 @@ namespace SceneSelector
                 Populate();
             });
 
+            var fixedRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             fixedRow.Add(useFixedToggle);
             fixedRow.Add(_fixedScenesDropdown);
-            
-
-            // Row: EnumField (Active Scene)
-            var activeSceneRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-            _activeSceneField = new EnumField("Active Scene", _activeSceneChoice);
-            _activeSceneField.style.flexGrow = 1;
-            _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
-            _activeSceneField.RegisterValueChangedCallback(evt =>
+            fixedRow.Add(fixedPingBtn);
+            RegisterDropTarget(fixedRow, asset =>
             {
-                _activeSceneChoice = (ActiveSceneChoice)evt.newValue;
+                var idx = _scenesListAssets.IndexOf(asset);
+                if (idx < 0) return;
+                _fixedScenesDropdown.index = idx;
+                _fixedScenes = asset;
+                fixedPingBtn.SetEnabled(true);
+                _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
+                Populate();
             });
-            activeSceneRow.Add(_activeSceneField);
+            settingsSection.Add(fixedRow);
 
-            // Row: Toggle (Use Options) + DropdownField (Scene Options)
-            var optionsRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-            var usePreselectionToggle = new Toggle { value = _usePreselection, tooltip = "Use Scene Options" };
-            usePreselectionToggle.style.marginRight = 4;
+            // Row: Toggle + Dropdown + Ping (Scene Options)
+            var usePreselectionToggle = new Toggle
+            {
+                value = _usePreselection, tooltip = "Use Scene Options",
+                style =
+                {
+                    marginRight = 4
+                }
+            };
 
-            int preselInitialIdx = _preselection != null ? _scenesListAssets.IndexOf(_preselection) : 0;
+            var preselInitialIdx = _preselection != null ? _scenesListAssets.IndexOf(_preselection) : 0;
             if (preselInitialIdx < 0) preselInitialIdx = 0;
-            _preselectionDropdown = new DropdownField("Scene Options", _scenesListNames, preselInitialIdx);
-            _preselectionDropdown.style.flexGrow = 1;
+            _preselectionDropdown = new DropdownField("Scene Options", _scenesListNames, preselInitialIdx)
+            {
+                style =
+                {
+                    flexGrow = 1
+                }
+            };
             _preselectionDropdown.SetEnabled(_usePreselection);
+
+            var preselPingBtn = MakePingButton(() => _preselection);
+            preselPingBtn.SetEnabled(_preselection != null);
+
             _preselectionDropdown.RegisterValueChangedCallback(evt =>
             {
-                int idx = _scenesListNames.IndexOf(evt.newValue);
+                var idx = _scenesListNames.IndexOf(evt.newValue);
                 _preselection = idx > 0 ? _scenesListAssets[idx] : null;
+                preselPingBtn.SetEnabled(_preselection != null);
                 Populate();
             });
 
@@ -117,21 +195,111 @@ namespace SceneSelector
                 Populate();
             });
 
+            var optionsRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             optionsRow.Add(usePreselectionToggle);
             optionsRow.Add(_preselectionDropdown);
-            
-            rootVisualElement.Add(fixedRow);
-            rootVisualElement.Add(optionsRow);
-            rootVisualElement.Add(activeSceneRow);
-            rootVisualElement.Add(_input);
+            optionsRow.Add(preselPingBtn);
+            RegisterDropTarget(optionsRow, asset =>
+            {
+                var idx = _scenesListAssets.IndexOf(asset);
+                if (idx >= 0)
+                {
+                    _preselectionDropdown.index = idx;
+                    _preselection = asset;
+                    preselPingBtn.SetEnabled(true);
+                    Populate();
+                }
+            });
+            settingsSection.Add(optionsRow);
 
-            var scroll = new ScrollView(ScrollViewMode.Vertical);
-            scroll.style.flexGrow = 1;
-            _container = new VisualElement();
-            scroll.Add(_container);
-            rootVisualElement.Add(scroll);
+            // Row: EnumField (Active Scene)
+            var activeSceneRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            _activeSceneField = new EnumField("Active Scene", _activeSceneChoice)
+            {
+                style =
+                {
+                    flexGrow = 1
+                }
+            };
+            _activeSceneField.SetEnabled(_useFixedScenes && _fixedScenes != null);
+            _activeSceneField.RegisterValueChangedCallback(evt =>
+            {
+                _activeSceneChoice = (ActiveSceneChoice)evt.newValue;
+            });
+            activeSceneRow.Add(_activeSceneField);
+            settingsSection.Add(activeSceneRow);
+            return settingsSection;
+        }
 
-            Populate();
+        // Small "locate in project" button next to a dropdown
+        static Button MakePingButton(System.Func<ScenesList> getAsset)
+        {
+            var btn = new Button(() =>
+            {
+                var asset = getAsset();
+                if (asset == null) return;
+                EditorGUIUtility.PingObject(asset);
+                Selection.activeObject = asset;
+            })
+            {
+                text = "⊙",
+                tooltip = "Select in Project",
+                style =
+                {
+                    width = 22,
+                    paddingLeft = 0,
+                    paddingRight = 0,
+                    marginLeft = 2
+                }
+            };
+            return btn;
+        }
+
+        // Register a ScenesList drag-and-drop target on the given element
+        static void RegisterDropTarget(VisualElement target, System.Action<ScenesList> onDrop)
+        {
+            var normalBg = new StyleColor(Color.clear);
+            var highlightBg = new StyleColor(new Color(0.25f, 0.55f, 1f, 0.25f));
+
+            target.RegisterCallback<DragEnterEvent>(_ =>
+            {
+                if (DragAndDrop.objectReferences.OfType<ScenesList>().Any())
+                    target.style.backgroundColor = highlightBg;
+            });
+            target.RegisterCallback<DragLeaveEvent>(_ => { target.style.backgroundColor = normalBg; });
+            target.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                if (DragAndDrop.objectReferences.OfType<ScenesList>().Any())
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Link;
+                    evt.StopPropagation();
+                }
+            });
+            target.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                var asset = DragAndDrop.objectReferences.OfType<ScenesList>().FirstOrDefault();
+                if (asset == null) return;
+                DragAndDrop.AcceptDrag();
+                target.style.backgroundColor = normalBg;
+                onDrop(asset);
+                evt.StopPropagation();
+            });
+            target.RegisterCallback<DragExitedEvent>(_ => { target.style.backgroundColor = normalBg; });
+        }
+
+        static VisualElement MakeDivider()
+        {
+            var line = new VisualElement
+            {
+                style =
+                {
+                    height = 1,
+                    backgroundColor = new StyleColor(new Color(0f, 0f, 0f, 0.35f)),
+                    marginTop = 2,
+                    marginBottom = 2
+                }
+            };
+            return line;
         }
 
         void RefreshScenesListChoices()
@@ -180,9 +348,7 @@ namespace SceneSelector
             if (string.IsNullOrEmpty(keyword))
             {
                 foreach (var sceneAsset in scenes)
-                {
                     _container.Add(CreateSceneButton(sceneAsset, null));
-                }
             }
             else
             {
@@ -193,9 +359,7 @@ namespace SceneSelector
                     .ToList();
 
                 foreach (var (scene, result) in scored)
-                {
                     _container.Add(CreateSceneButton(scene, result.matchedIndices));
-                }
             }
         }
 
@@ -207,13 +371,10 @@ namespace SceneSelector
             var targetLower = target.ToLower();
             var queryLower = query.ToLower();
 
-            int score = 0;
-            int queryIdx = 0;
-            int lastMatchIdx = -1;
-            int consecutive = 0;
+            int score = 0, queryIdx = 0, lastMatchIdx = -1, consecutive = 0;
             var matchedIndices = new int[queryLower.Length];
 
-            for (int i = 0; i < targetLower.Length && queryIdx < queryLower.Length; i++)
+            for (var i = 0; i < targetLower.Length && queryIdx < queryLower.Length; i++)
             {
                 if (targetLower[i] != queryLower[queryIdx])
                 {
@@ -221,39 +382,26 @@ namespace SceneSelector
                     continue;
                 }
 
-                matchedIndices[queryIdx] = i;
-                queryIdx++;
+                matchedIndices[queryIdx++] = i;
 
-                // Consecutive bonus
-                if (lastMatchIdx == i - 1)
-                {
-                    consecutive++;
-                    score += consecutive * 3;
-                }
-                else
-                {
-                    consecutive = 0;
-                }
+                if (lastMatchIdx == i - 1) score += ++consecutive * 3;
+                else consecutive = 0;
 
-                // Word boundary bonus
-                bool isWordBoundary = i == 0
-                                      || target[i - 1] == '_'
-                                      || target[i - 1] == ' '
-                                      || (char.IsUpper(target[i]) && char.IsLower(target[i - 1]));
-                if (isWordBoundary)
-                    score += 5;
+                var isWordBoundary = i == 0 || target[i - 1] == '_' || target[i - 1] == ' '
+                                     || (char.IsUpper(target[i]) && char.IsLower(target[i - 1]));
+                if (isWordBoundary) score += 5;
 
                 score += 1;
                 lastMatchIdx = i;
             }
 
-            bool matched = queryIdx == queryLower.Length;
+            var matched = queryIdx == queryLower.Length;
             return (matched, score, matched ? matchedIndices : null);
         }
 
         static bool HasUnsavedScenes()
         {
-            for (int i = 0; i < SceneManager.sceneCount; i++)
+            for (var i = 0; i < SceneManager.sceneCount; i++)
                 if (SceneManager.GetSceneAt(i).isDirty)
                     return true;
             return false;
@@ -263,11 +411,11 @@ namespace SceneSelector
         {
             if (!HasUnsavedScenes()) return true;
 
-            int choice = EditorUtility.DisplayDialogComplex(
+            var choice = EditorUtility.DisplayDialogComplex(
                 "Unsaved Scenes",
                 "You have unsaved changes in the current scene(s). What would you like to do?",
-                "Save and Open",   // 0
-                "Cancel",          // 1
+                "Save and Open", // 0
+                "Cancel", // 1
                 "Discard and Open" // 2
             );
             switch (choice)
@@ -280,14 +428,10 @@ namespace SceneSelector
 
         VisualElement CreateSceneButton(SceneAsset sceneAsset, int[] highlightIndices)
         {
-            string scenePath = AssetDatabase.GetAssetPath(sceneAsset);
+            var scenePath = AssetDatabase.GetAssetPath(sceneAsset);
             var buttonGroup = new VisualElement
             {
-                style =
-                {
-                    flexDirection = FlexDirection.Row,
-                    marginLeft = 3
-                }
+                style = { flexDirection = FlexDirection.Row, marginLeft = 3 }
             };
 
             var label = BuildLabel(sceneAsset.name, highlightIndices);
@@ -300,18 +444,12 @@ namespace SceneSelector
 
                 if (_useFixedScenes && _fixedScenes != null)
                 {
-                    bool first = true;
+                    var first = true;
                     foreach (var fixedScene in _fixedScenes.Scenes)
                     {
                         var path = AssetDatabase.GetAssetPath(fixedScene);
-                        if (first)
-                        {
-                            EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
-                            first = false;
-                            continue;
-                        }
-
-                        EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                        EditorSceneManager.OpenScene(path, first ? OpenSceneMode.Single : OpenSceneMode.Additive);
+                        first = false;
                     }
 
                     EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
@@ -322,11 +460,6 @@ namespace SceneSelector
                             SceneManager.SetActiveScene(SceneManager.GetSceneByPath(
                                 AssetDatabase.GetAssetPath(_fixedScenes.Scenes[0])));
                             break;
-                        case ActiveSceneChoice.LastFixedScene:
-                            SceneManager.SetActiveScene(SceneManager.GetSceneByPath(
-                                AssetDatabase.GetAssetPath(_fixedScenes.Scenes[^1])));
-                            break;
-                        case ActiveSceneChoice.OpenedScene:
                         default:
                             SceneManager.SetActiveScene(SceneManager.GetSceneByPath(scenePath));
                             break;
@@ -336,18 +469,13 @@ namespace SceneSelector
                 {
                     EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
                 }
-            })
-            {
-                text = "Open"
-            };
+            }) { text = "Open" };
 
             _buttons.Add(openButton);
             buttonGroup.Add(openButton);
 
             var openAddButton = new Button(() => { EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive); })
-            {
-                text = "Open Additive"
-            };
+                { text = "Open Additive" };
 
             buttonGroup.Add(openAddButton);
             _buttons.Add(openAddButton);
@@ -358,40 +486,32 @@ namespace SceneSelector
         static VisualElement BuildLabel(string name, int[] highlightIndices)
         {
             if (highlightIndices == null || highlightIndices.Length == 0)
-            {
-                var plain = new Label(name);
-                return plain;
-            }
+                return new Label(name);
 
             var container = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             var highlightSet = new HashSet<int>(highlightIndices);
-
-            int i = 0;
+            var i = 0;
             while (i < name.Length)
             {
-                if (highlightSet.Contains(i))
+                var highlighted = highlightSet.Contains(i);
+                var start = i;
+                while (i < name.Length && highlightSet.Contains(i) == highlighted) i++;
+
+                var lbl = new Label(name.Substring(start, i - start))
                 {
-                    // Collect consecutive highlighted chars
-                    int start = i;
-                    while (i < name.Length && highlightSet.Contains(i))
-                        i++;
-                    var hl = new Label(name.Substring(start, i - start));
-                    hl.style.color = new StyleColor(new Color(0.4f, 0.8f, 1f));
-                    hl.style.unityFontStyleAndWeight = FontStyle.Bold;
-                    hl.style.paddingLeft = 0;
-                    hl.style.paddingRight = 0;
-                    container.Add(hl);
-                }
-                else
+                    style =
+                    {
+                        paddingLeft = 0,
+                        paddingRight = 0
+                    }
+                };
+                if (highlighted)
                 {
-                    int start = i;
-                    while (i < name.Length && !highlightSet.Contains(i))
-                        i++;
-                    var normal = new Label(name.Substring(start, i - start));
-                    normal.style.paddingLeft = 0;
-                    normal.style.paddingRight = 0;
-                    container.Add(normal);
+                    lbl.style.color = new StyleColor(new Color(0.4f, 0.8f, 1f));
+                    lbl.style.unityFontStyleAndWeight = FontStyle.Bold;
                 }
+
+                container.Add(lbl);
             }
 
             return container;
